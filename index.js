@@ -10,7 +10,7 @@ if (!token) {
     process.exit(1);
 }
 
-const bot = new TelegramBot(token);
+const bot = new TelegramBot(token, { polling: false });
 const WEBHOOK_PATH = `/bot${token}`;
 
 app.use(express.json());
@@ -46,7 +46,7 @@ function getChannelKeyboard() {
 }
 
 const sendChannelMenu = (chatId) => {
-    bot.sendMessage(chatId, "Namaste! Video bhejne ke liye niche diye gaye channel me se koi ek select karein:", {
+    bot.sendMessage(chatId, "Namaste! Video forward karne ke liye apna target channel select karein:", {
         reply_markup: getChannelKeyboard()
     });
 };
@@ -57,7 +57,6 @@ bot.onText(/\/start/, (msg) => {
     sendChannelMenu(chatId);
 });
 
-// Yahan callback query ko bilkul seedha aur pakka kar diya hai
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
@@ -68,7 +67,7 @@ bot.on('callback_query', async (query) => {
 
         if (!selectedChannel || !selectedChannel.id) {
             try {
-                await bot.answerCallbackQuery(query.id, { text: `Error: Yeh channel set nahi hai!`, show_alert: true });
+                await bot.answerCallbackQuery(query.id, { text: `Error: Channel configure nahi hai!`, show_alert: true });
             } catch (e) {}
             return;
         }
@@ -80,7 +79,7 @@ bot.on('callback_query', async (query) => {
             await bot.answerCallbackQuery(query.id, { text: `${selectedChannel.label} select ho gaya!` });
         } catch (e) {}
 
-        bot.sendMessage(chatId, `✅ **${selectedChannel.label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhejiye, sabhi ishi channel par jayengi.`);
+        bot.sendMessage(chatId, `✅ **${selectedChannel.label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhejiye, sabhi ishi channel par line se forward hongi.`);
     }
 });
 
@@ -96,13 +95,13 @@ async function processQueue(chatId) {
         userQ.current++;
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 1200));
+            await new Promise(resolve => setTimeout(resolve, 1500));
             await bot.forwardMessage(targetChannel, chatId, msgId);
             
             bot.sendMessage(chatId, `🟢 (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
         } catch (error) {
             console.error("Forward error:", error);
-            bot.sendMessage(chatId, `❌ Video #${userQ.current} bhejne me samasya aayi!`);
+            bot.sendMessage(chatId, `❌ Video #${userQ.current} bhejne me error aaya! Check karein ki bot channel par admin hai.`);
         }
     }
 
@@ -114,7 +113,7 @@ bot.on('video', (msg) => {
     const targetChannel = userState[chatId];
 
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle upar diye gaye button se apna target channel select kijiye:", {
+        bot.sendMessage(chatId, "⚠️ Pehle apna target channel select kijiye:", {
             reply_markup: getChannelKeyboard()
         });
         return;
