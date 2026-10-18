@@ -19,10 +19,15 @@ const bot = new TelegramBot(token, {
     }
 });
 
+// Bot start hote hi commands set kar dena
+bot.setMyCommands([
+    { command: 'start', description: 'Bot restart karein aur channel select karein' }
+]).catch(err => console.log("Command set error:", err));
+
 // Purana polling conflict error ignore karne ke liye
 bot.on('polling_error', (error) => {
     if (error.code !== 'ETELEGRAM' || error.message.indexOf('409 Conflict') === -1) {
-        console.log(error.code);
+        console.log("Polling error code:", error.code);
     }
 });
 
@@ -47,16 +52,20 @@ function getChannelKeyboard() {
     return { inline_keyboard: keyboard };
 }
 
-// /start dabane par channels ke buttons dikhayein
-bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    userState[chatId] = null;
+// /start dabane par ya naye message par channel selection dikhana
+const sendChannelMenu = (chatId) => {
     bot.sendMessage(chatId, "Namaste! Video bhejne ke liye niche diye gaye channel me se koi ek select karein:", {
         reply_markup: getChannelKeyboard()
     });
+};
+
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    userState[chatId] = null;
+    sendChannelMenu(chatId);
 });
 
-// Channel select hone par
+// Channel select hone par callback query handle karna
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
@@ -107,7 +116,7 @@ bot.on('video', (msg) => {
     const targetChannel = userState[chatId];
 
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle /start dabakar channel select kijiye:", {
+        bot.sendMessage(chatId, "⚠️ Pehle apna target channel select kijiye:", {
             reply_markup: getChannelKeyboard()
         });
         return;
@@ -123,6 +132,15 @@ bot.on('video', (msg) => {
     processQueue(chatId);
 });
 
+// Agar user bina /start dabaye kuch text bhejta hai ya bot open karta hai, toh use buttons dikhayein
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    // Agar message text hai aur command nahi hai, aur user ka channel select nahi hai
+    if (msg.text && !msg.text.startsWith('/') && !userState[chatId]) {
+        sendChannelMenu(chatId);
+    }
+});
+
 app.get('/', (req, res) => {
     res.send('Telegram Video Router Bot is running!');
 });
@@ -130,3 +148,4 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+        
