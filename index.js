@@ -10,7 +10,21 @@ if (!token) {
     process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
+// 409 conflict se bachne ke liye polling options
+const bot = new TelegramBot(token, { 
+    polling: {
+        interval: 300,
+        autoStart: true,
+        params: { timeout: 10 }
+    }
+});
+
+// Purana polling conflict error ignore karne ke liye
+bot.on('polling_error', (error) => {
+    if (error.code !== 'ETELEGRAM' || error.message.indexOf('409 Conflict') === -1) {
+        console.log(error.code);
+    }
+});
 
 const CHANNELS = {
     1: { id: process.env.CHANNEL_1, label: process.env.LABEL_1 || 'Channel 1' },
@@ -113,7 +127,6 @@ app.get('/', (req, res) => {
     res.send('Telegram Video Router Bot is running!');
 });
 
-// Render ke liye '0.0.0.0' port binding zaroori hai taaki port error na aaye
-app.listen(port, '0.0.0.0', () => {
+app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
