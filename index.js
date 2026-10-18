@@ -10,25 +10,28 @@ if (!token) {
     process.exit(1);
 }
 
-// 409 conflict se bachne ke liye polling options
-const bot = new TelegramBot(token, { 
-    polling: {
-        interval: 300,
-        autoStart: true,
-        params: { timeout: 10 }
-    }
-});
+// Polling ko hata kar bina polling ke bot initialize karein
+const bot = new TelegramBot(token);
 
-// Bot start hote hi commands set kar dena
-bot.setMyCommands([
-    { command: 'start', description: 'Bot restart karein aur channel select karein' }
-]).catch(err => console.log("Command set error:", err));
+// Render ka URL (Aap apna Render app ka URL yahan daal sakte hain)
+// Jaise: https://telegram-video-router.onrender.com
+const WEBHOOK_URL = process.env.WEBHOOK_URL; 
 
-// Purana polling conflict error ignore karne ke liye
-bot.on('polling_error', (error) => {
-    if (error.code !== 'ETELEGRAM' || error.message.indexOf('409 Conflict') === -1) {
-        console.log("Polling error code:", error.code);
-    }
+const WEBHOOK_PATH = `/bot${token}`;
+
+if (WEBHOOK_URL) {
+    bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+    console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+} else {
+    console.log("Warning: WEBHOOK_URL environment variable set nahi hai!");
+}
+
+app.use(express.json());
+
+// Telegram se aane wale updates ko receive karne ke liye route
+app.post(WEBHOOK_PATH, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
 });
 
 const CHANNELS = {
@@ -52,7 +55,6 @@ function getChannelKeyboard() {
     return { inline_keyboard: keyboard };
 }
 
-// /start dabane par ya naye message par channel selection dikhana
 const sendChannelMenu = (chatId) => {
     bot.sendMessage(chatId, "Namaste! Video bhejne ke liye niche diye gaye channel me se koi ek select karein:", {
         reply_markup: getChannelKeyboard()
@@ -65,7 +67,6 @@ bot.onText(/\/start/, (msg) => {
     sendChannelMenu(chatId);
 });
 
-// Channel select hone par callback query handle karna
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
@@ -80,11 +81,10 @@ bot.on('callback_query', (query) => {
         userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
 
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain. Bot line me lagakar bhejta rahega.`);
+        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain.`);
     }
 });
 
-// Queue processing for bulk videos
 async function processQueue(chatId) {
     const userQ = userQueues[chatId];
     if (!userQ || userQ.processing || userQ.queue.length === 0) return;
@@ -110,7 +110,6 @@ async function processQueue(chatId) {
     userQ.processing = false;
 }
 
-// Video aane par queue me add karna
 bot.on('video', (msg) => {
     const chatId = msg.chat.id;
     const targetChannel = userState[chatId];
@@ -132,17 +131,15 @@ bot.on('video', (msg) => {
     processQueue(chatId);
 });
 
-// Agar user bina /start dabaye kuch text bhejta hai ya bot open karta hai, toh use buttons dikhayein
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    // Agar message text hai aur command nahi hai, aur user ka channel select nahi hai
     if (msg.text && !msg.text.startsWith('/') && !userState[chatId]) {
         sendChannelMenu(chatId);
     }
 });
 
 app.get('/', (req, res) => {
-    res.send('Telegram Video Router Bot is running!');
+    res.send('Telegram Video Router Bot is running on Webhook!');
 });
 
 app.listen(port, () => {
