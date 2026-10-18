@@ -1,5 +1,5 @@
 const express = require("express");
-const https = https || require("https");
+const httpsModule = require("https");
 
 const PORT = Number(process.env.PORT || 10000);
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -7,15 +7,6 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// 👉 YAHAN APNE CHANNELS KE NAAM AUR UNKI ID (-100xxxxxxx) DALEN:
-const BUTTON_CHANNELS = {
-  btn_1: { label: "Channel 1", target: "-100PehliChannelID" },
-  btn_2: { label: "Channel 2", target: "-100DusriChannelID" },
-  btn_3: { label: "Channel 3", target: "-100TeesriChannelID" },
-  btn_4: { label: "Channel 4", target: "-100ChauthiChannelID" },
-  btn_5: { label: "Channel 5", target: "-100PanchviChannelID" }
-};
 
 function tgApi(method, payload) {
   return new Promise((resolve, reject) => {
@@ -31,7 +22,7 @@ function tgApi(method, payload) {
       }
     };
 
-    const req = https.request(options, (res) => {
+    const req = httpsModule.request(options, (res) => {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => {
@@ -50,7 +41,7 @@ function tgApi(method, payload) {
 }
 
 app.get("/", (req, res) => {
-  res.send("🚀 Telegram Custom Control Bot is Live!");
+  res.send("🚀 Telegram Permanent Environment-Controlled Bot is Live!");
 });
 
 app.post("/", async (req, res) => {
@@ -67,21 +58,28 @@ app.post("/", async (req, res) => {
         const fileId = video ? video.file_id : "";
         const actionPrefix = video ? `send_${fileId}_` : "btn_";
 
+        // Render environment se button ke naam uthayenge
+        const c1 = process.env.LABEL_1 || "Channel 1";
+        const c2 = process.env.LABEL_2 || "Channel 2";
+        const c3 = process.env.LABEL_3 || "Channel 3";
+        const c4 = process.env.LABEL_4 || "Channel 4";
+        const c5 = process.env.LABEL_5 || "Channel 5";
+
         await tgApi("sendMessage", {
           chat_id: chatId,
           text: video ? "✅ Video mil gaya! Ab chuniye ki ise kis channel par bhejna hai:" : "👋 Namaste! Chuniye ki video kis channel par bhejna hai:",
           reply_markup: {
             inline_keyboard: [
               [
-                { text: BUTTON_CHANNELS.btn_1.label, callback_data: actionPrefix + "btn_1" },
-                { text: BUTTON_CHANNELS.btn_2.label, callback_data: actionPrefix + "btn_2" }
+                { text: c1, callback_data: actionPrefix + "1" },
+                { text: c2, callback_data: actionPrefix + "2" }
               ],
               [
-                { text: BUTTON_CHANNELS.btn_3.label, callback_data: actionPrefix + "btn_3" },
-                { text: BUTTON_CHANNELS.btn_4.label, callback_data: actionPrefix + "btn_4" }
+                { text: c3, callback_data: actionPrefix + "3" },
+                { text: c4, callback_data: actionPrefix + "4" }
               ],
               [
-                { text: BUTTON_CHANNELS.btn_5.label, callback_data: actionPrefix + "btn_5" }
+                { text: c5, callback_data: actionPrefix + "5" }
               ]
             ]
           }
@@ -94,30 +92,41 @@ app.post("/", async (req, res) => {
       const chatId = callbackQuery.message.chat.id;
       const data = callbackQuery.data;
 
-      if (data.includes("btn_")) {
-        const parts = data.split("btn_");
-        const fileId = parts[0].replace("send_", "");
-        const btnKey = "btn_" + parts[1];
-        const channelObj = BUTTON_CHANNELS[btnKey];
+      if (data.includes("btn_") || data.includes("send_")) {
+        const parts = data.split("_");
+        const num = parts[parts.length - 1]; // Button ka number (1 se 5)
+        const fileId = data.startsWith("send_") ? parts[1] : "";
+
+        // Render environment se asli channel ID aur label nikalna
+        const targetChannel = process.env["CHANNEL_" + num];
+        const channelLabel = process.env["LABEL_" + num] || ("Channel " + num);
+
+        if (!targetChannel) {
+          await tgApi("sendMessage", {
+            chat_id: chatId,
+            text: `❌ Error: Render Environment mein CHANNEL_${num} set nahi hai.`
+          });
+          return;
+        }
 
         if (!fileId) {
           await tgApi("sendMessage", {
             chat_id: chatId,
-            text: `ℹ️ Aapne ${channelObj.label} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`
+            text: `ℹ️ Aapne ${channelLabel} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`
           });
           return;
         }
 
         const result = await tgApi("sendVideo", {
-          chat_id: channelObj.target,
+          chat_id: targetChannel,
           video: fileId,
-          caption: update.message?.caption || ""
+          caption: callbackQuery.message?.caption || ""
         });
 
         if (result.ok) {
           await tgApi("sendMessage", {
             chat_id: chatId,
-            text: `🎉 Badhai ho! Video safaltapurvak ${channelObj.label} par bhej diya gaya hai.`
+            text: `🎉 Badhai ho! Video safaltapurvak ${channelLabel} par bhej diya gaya hai.`
           });
         } else {
           await tgApi("sendMessage", {
@@ -141,3 +150,4 @@ app.listen(PORT, async () => {
     console.log("Webhook automatically set to:", renderUrl);
   }
 });
+    
