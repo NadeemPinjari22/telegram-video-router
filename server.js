@@ -1170,6 +1170,22 @@ async function checkAuth() {
   } catch (e) {
     console.error(e);
   }
+}    if (data.authorized || data.hasSession) {
+      section.innerHTML = '<div class="ok">✓ Telegram Client is Authorized and Connected!</div>';
+    } else {
+      section.innerHTML = '<div class="bad">⚠️ Session not found. Please check your API_ID, API_HASH and SESSION_STRING in Environment Variables.</div>';
+    }
+  } catch (e) {
+    console.error(e);
+  }
 }
+checkAuth();
+</script>
 
-      
+</body>
+</html>
+`;
+
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
