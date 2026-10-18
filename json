@@ -1,0 +1,13 @@
+{
+  "name": "telegram-video-router",
+  "version": "1.0.0",
+  "description": "Telegram video router bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.65.1"
+  }
+}
