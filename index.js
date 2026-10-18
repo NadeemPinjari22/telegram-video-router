@@ -113,6 +113,7 @@ app.get('/', (req, res) => {
     res.send('Telegram Video Router Bot is running!');
 });
 
-app.listen(port, () => {
+// Render ke liye '0.0.0.0' port binding zaroori hai taaki port error na aaye
+app.listen(port, '0.0.0.0', () => {
     console.log(`Server is running on port ${port}`);
 });
