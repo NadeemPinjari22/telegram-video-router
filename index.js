@@ -1,293 +1,170 @@
 const express = require("express");
-const multer = require("multer");
-const fs = require("fs");
-const fsp = fs.promises;
-const path = require("path");
-const crypto = require("crypto");
-const { TelegramClient, StringSession, errors } = require("telegram");
-
-// ================= CONFIGURATION =================
-const PORT = Number(process.env.PORT || 3000);
-const COOLDOWN_MS = 3000; // Har video ke baad 3 second ka compulsory safe gap
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
-const TMP_DIR = path.resolve(__dirname, "telegram_uploads");
-
-// Temp directory create karna
-if (!fs.existsSync(TMP_DIR)) {
-  fs.mkdirSync(TMP_DIR, { recursive: true });
-}
+const https = require("https");
 
 const app = express();
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Multer Disk Storage config
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, TMP_DIR),
-  filename: (_req, file, cb) => {
-    const safeHash = crypto.randomBytes(6).toString("hex");
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `vid_${Date.now()}_${safeHash}${ext}`);
-  }
-});
+const PORT = process.env.PORT || 10000;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+// अगर आप किसी खास चैनल में वीडियो भेजना चाहते हैं, तो Render Environment में CHANNEL_ID डालें (जैसे: @mychannel या -100123456789)
+const DEFAULT_CHANNEL = process.env.CHANNEL_ID || null;
 
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_FILE_SIZE }
-});
+// Telegram API को रिक्वेस्ट भेजने का फंक्शन
+function tgApi(method, payload) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(payload);
+    const options = {
+      hostname: "api.telegram.org",
+      port: 443,
+      path: `/bot${BOT_TOKEN}/${method}`,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(data),
+      },
+    };
 
-// ================= GLOBAL STATE & CACHE =================
-let tgClient = null;
-let connectingPromise = null;
-const entityCache = new Map();
-const sseClients = new Map();
-const dbJobs = new Map();
-const queue = [];
-let isQueueRunning = false;
-
-// ================= TELEGRAM ENGINE =================
-async function getTelegramClient() {
-  if (!process.env.API_ID || !process.env.API_HASH) {
-    throw new Error("Secrets mein API_ID aur API_HASH add karein.");
-  }
-  if (!process.env.SESSION_STRING) {
-    throw new Error("Secrets mein SESSION_STRING add karein.");
-  }
-
-  if (tgClient && tgClient.connected) return tgClient;
-  if (connectingPromise) return connectingPromise;
-
-  connectingPromise = (async () => {
-    const client = new TelegramClient(
-      new StringSession(process.env.SESSION_STRING),
-      Number(process.env.API_ID),
-      process.env.API_HASH,
-      {
-        connectionRetries: 5,
-        retryDelay: 2000,
-        autoReconnect: true,
-        useWSS: false,
-        deviceModel: "Cloud Video Router",
-        appVersion: "2.5.0"
-      }
-    );
-
-    await client.connect();
-    tgClient = client;
-    return client;
-  })();
-
-  try {
-    return await connectingPromise;
-  } finally {
-    connectingPromise = null;
-  }
-}
-
-// Channel Entity Resolver (Cache ke sath taaki PEER_FLOOD na aaye)
-async function resolveChannel(client, channelNum) {
-  const channelVal = process.env[`CHANNEL_${channelNum}`] || channelNum;
-  if (!channelVal) {
-    throw new Error(`CHANNEL_${channelNum} configuration missing hai.`);
-  }
-
-  if (entityCache.has(channelVal)) {
-    return entityCache.get(channelVal);
-  }
-
-  const entity = await client.getEntity(channelVal);
-  entityCache.set(channelVal, entity);
-  return entity;
-}
-
-// ================= PROGRESS BROADCASTER =================
-function updateJob(jobId, data) {
-  const current = dbJobs.get(jobId) || {};
-  const updated = { ...current, ...data };
-  dbJobs.set(jobId, updated);
-
-  const clients = sseClients.get(jobId);
-  if (clients) {
-    const msg = `data: ${JSON.stringify(updated)}\n\n`;
-    for (const res of clients) {
-      res.write(msg);
-    }
-  }
-}
-
-// Auto Temp File Delete (Storage safe rakhne ke liye)
-async function safeDelete(filePath) {
-  try {
-    if (fs.existsSync(filePath)) {
-      await fsp.unlink(filePath);
-    }
-  } catch (err) {
-    console.error(`File delete error: ${err.message}`);
-  }
-}
-
-// ================= VIDEO DISPATCH CORE =================
-async function sendVideoTask(task) {
-  const { filePath, fileName, channel, jobId, caption } = task;
-  const client = await getTelegramClient();
-  const entity = await resolveChannel(client, channel);
-
-  let success = false;
-  let attempt = 0;
-  const maxAttempts = 3;
-
-  while (attempt < maxAttempts && !success) {
-    attempt++;
-    try {
-      updateJob(jobId, { status: "uploading", attempt, percent: 0, speed: "Starting..." });
-
-      let lastBytes = 0;
-      let lastTime = Date.now();
-
-      await client.sendFile(entity, {
-        file: filePath,
-        caption: caption || fileName,
-        forceDocument: false,
-        supportsStreaming: true,
-        workers: 4, // 4 threads safe speed
-        progressCallback: (progress) => {
-          const now = Date.now();
-          const timeGap = Math.max(0.3, (now - lastTime) / 1000);
-          const bytesDiff = progress - lastBytes;
-          const speedBytes = bytesDiff / timeGap;
-
-          lastBytes = progress;
-          lastTime = now;
-
-          const percent = Math.min(100, Math.round(progress * 100));
-          const speedMB = (speedBytes / (1024 * 1024)).toFixed(2);
-
-          updateJob(jobId, {
-            percent,
-            speed: `${speedMB} MB/s`,
-            status: "uploading"
-          });
+    const req = https.request(options, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (e) {
+          resolve({ ok: false, error: body });
         }
       });
+    });
 
-      success = true;
-      updateJob(jobId, { status: "completed", percent: 100, speed: "0 MB/s", error: null });
-
-    } catch (err) {
-      console.error(`[Upload Attempt ${attempt}]:`, err.message);
-
-      if (err instanceof errors.FloodWaitError || err.seconds) {
-        const wait = err.seconds || 10;
-        updateJob(jobId, { status: "rate_limit", error: `Telegram limit! Waiting ${wait}s...` });
-        await new Promise((r) => setTimeout(r, wait * 1000));
-        continue;
-      }
-
-      if (attempt >= maxAttempts) {
-        updateJob(jobId, { status: "failed", error: err.message });
-        throw err;
-      }
-
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
+    req.on("error", (err) => reject(err));
+    req.write(data);
+    req.end();
+  });
 }
 
-// Queue Processing Loop
-async function runQueue() {
-  if (isQueueRunning || queue.length === 0) return;
-  isQueueRunning = true;
+// जब तक नए मैसेज आएंगे, उन्हें चेक करने के लिए Polling इंजन
+let lastUpdateId = 0;
 
-  while (queue.length > 0) {
-    const task = queue.shift();
+async function pollUpdates() {
+  if (!BOT_TOKEN) {
+    console.error("❌ Error: BOT_TOKEN नहीं मिला! कृपया Render Environment में BOT_TOKEN डालें।");
+    return;
+  }
+
+  // पहले पुराना कोई अटका हुआ Webhook हटाएं ताकि बॉट तुरंत काम करे
+  await tgApi("deleteWebhook", { drop_pending_updates: false });
+  console.log("✅ Bot successfully connected! Waiting for messages...");
+
+  while (true) {
     try {
-      await sendVideoTask(task);
-    } catch (e) {
-      console.error(`Task ${task.jobId} failed.`);
-    } finally {
-      await safeDelete(task.filePath);
+      const response = await tgApi("getUpdates", {
+        offset: lastUpdateId + 1,
+        timeout: 20,
+      });
 
-      if (queue.length > 0) {
-        updateJob(task.jobId, { status: "cooldown", message: "Anti-Ban safe delay active..." });
-        await new Promise((r) => setTimeout(r, COOLDOWN_MS));
+      if (response && response.ok && response.result.length > 0) {
+        for (const update of response.result) {
+          lastUpdateId = update.update_id;
+          await handleUpdate(update);
+        }
       }
+    } catch (err) {
+      console.error("Polling error:", err.message);
+      await new Promise((r) => setTimeout(r, 3000));
     }
+    await new Promise((r) => setTimeout(r, 1000));
   }
-
-  isQueueRunning = false;
 }
 
-// ================= API ENDPOINTS =================
+// मैसेज और वीडियो को हैंडल करने का फंक्शन
+async function handleUpdate(update) {
+  const msg = update.message;
+  if (!msg) return;
 
-// Health check endpoint
-app.get("/", (req, res) => {
-  res.send("🚀 Telegram Video Router Engine is running successfully!");
-});
+  const chatId = msg.chat.id;
+  const text = (msg.text || "").trim();
 
-// SSE Live Progress
-app.get("/api/progress/:jobId", (req, res) => {
-  const { jobId } = req.params;
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
-
-  if (!sseClients.has(jobId)) {
-    sseClients.set(jobId, new Set());
+  // 1. अगर यूज़र /start या hi भेजे
+  if (text === "/start" || text.toLowerCase() === "hi" || text.toLowerCase() === "hello") {
+    await tgApi("sendMessage", {
+      chat_id: chatId,
+      text:
+        "👋 नमस्ते! **Video Upload Board Bot** अब चालू है!\n\n" +
+        "📤 **कैसे इस्तेमाल करें:**\n" +
+        "1. मुझे कोई भी **Video** भेजें।\n" +
+        "2. अगर किसी खास चैनल में भेजना है, तो वीडियो के कैप्शन (Caption) में चैनल का यूज़रनेम लिखें (जैसे: `@my_channel`)।\n" +
+        (DEFAULT_CHANNEL
+          ? `\n✅ डिफ़ॉल्ट चैनल सेट है: ${DEFAULT_CHANNEL}`
+          : "\n⚠️ डिफ़ॉल्ट चैनल सेट नहीं है। आप वीडियो के कैप्शन में `@channel_username` लिखकर भेज सकते हैं।"),
+      parse_mode: "Markdown",
+    });
+    return;
   }
-  sseClients.get(jobId).add(res);
 
-  const initial = dbJobs.get(jobId) || { status: "waiting", percent: 0 };
-  res.write(`data: ${JSON.stringify(initial)}\n\n`);
+  // 2. अगर यूज़र ने कोई Video या Document भेजा है
+  if (msg.video || msg.document) {
+    const captionText = (msg.caption || "").trim();
+    let targetChannel = DEFAULT_CHANNEL;
+    let finalCaption = captionText;
 
-  req.on("close", () => {
-    const clients = sseClients.get(jobId);
-    if (clients) {
-      clients.delete(res);
-      if (clients.size === 0) sseClients.delete(jobId);
+    // अगर कैप्शन की शुरुआत में @channel या -100 लिखा है तो उसे चैनल मान लें
+    if (captionText.startsWith("@") || captionText.startsWith("-100")) {
+      const parts = captionText.split(" ");
+      targetChannel = parts[0];
+      finalCaption = parts.slice(1).join(" ");
     }
-  });
-});
 
-// Dispatch video API
-app.post("/api/dispatch", upload.single("video"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ ok: false, message: "No video file provided." });
+    if (!targetChannel) {
+      await tgApi("sendMessage", {
+        chat_id: chatId,
+        text:
+          "✅ आपका वीडियो मिल गया!\n\n" +
+          "लेकिन इसे किस चैनल में भेजना है, यह सेट नहीं है।\n" +
+          "👉 **तरीका 1:** वीडियो भेजते समय Caption में अपने चैनल का यूज़रनेम लिखें (जैसे: `@mychannel मेरा वीडियो`)\n" +
+          "👉 **तरीका 2:** Render के Environment में जाकर `CHANNEL_ID` नाम से अपना चैनल जोड़ दें।",
+      });
+      return;
+    }
+
+    // चैनल में वीडियो कॉपी/अपलोड करना
+    const res = await tgApi("copyMessage", {
+      chat_id: targetChannel,
+      from_chat_id: chatId,
+      message_id: msg.message_id,
+      caption: finalCaption || undefined,
+    });
+
+    if (res && res.ok) {
+      await tgApi("sendMessage", {
+        chat_id: chatId,
+        text: `🚀 वीडियो सफलतापूर्वक **${targetChannel}** पर अपलोड हो गया है!`,
+        parse_mode: "Markdown",
+      });
+    } else {
+      await tgApi("sendMessage", {
+        chat_id: chatId,
+        text: `❌ चैनल (${targetChannel}) में वीडियो भेजने में एरर आया:\n\`${res.description || "पक्का करें कि बॉट उस चैनल में Admin है!"}\``,
+        parse_mode: "Markdown",
+      });
+    }
+    return;
   }
 
-  const channel = req.body.channel || "1";
-  const caption = req.body.caption || "";
-  const jobId = crypto.randomUUID();
-
-  const task = {
-    jobId,
-    filePath: req.file.path,
-    fileName: req.file.originalname,
-    channel,
-    caption
-  };
-
-  dbJobs.set(jobId, {
-    jobId,
-    fileName: req.file.originalname,
-    status: "in_queue",
-    percent: 0,
-    speed: "0 MB/s",
-    error: null
+  // बाकी किसी भी मैसेज का जवाब
+  await tgApi("sendMessage", {
+    chat_id: chatId,
+    text: "कृपया मुझे कोई **Video** भेजें जिसे चैनल पर अपलोड करना है, या मदद के लिए `/start` लिखें।",
+    parse_mode: "Markdown",
   });
+}
 
-  queue.push(task);
-  runQueue();
-
-  res.status(202).json({
-    ok: true,
-    jobId,
-    fileName: req.file.originalname,
-    queueLength: queue.length
-  });
+// Render को चालू रखने के लिए वेब पेज
+app.get("/", (req, res) => {
+  res.send("🚀 Telegram Video Upload Bot is LIVE and Running!");
 });
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  pollUpdates();
 });
-    
+                                 
