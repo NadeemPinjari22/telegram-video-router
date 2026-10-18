@@ -21,7 +21,7 @@ const CHANNELS = {
 };
 
 const userState = {};
-const userCounts = {};
+const userQueues = {};
 
 function getChannelKeyboard() {
     const keyboard = [];
@@ -33,20 +33,20 @@ function getChannelKeyboard() {
     return { inline_keyboard: keyboard };
 }
 
-// Jab bhi koi /start likhe ya kuch bhi bole ya bot khole, seedha buttons dikhao
-bot.onText(/\/start/, (msg) => {
+// Jaise hi aap bot ko kuch bhi message karenge, saare channels ke buttons turant samne aa jayenge
+bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    userState[chatId] = null;
-    bot.sendMessage(chatId, "Namaste! Yeh lijiye aapke saare channels. Koi ek select kijiye:", {
-        reply_markup: getChannelKeyboard()
-    });
+    if (!msg.video && !msg.text?.startsWith('/')) {
+        bot.sendMessage(chatId, "Namaste! Video bhejne ke liye pehle apna channel select karein:", {
+            reply_markup: getChannelKeyboard()
+        });
+    }
 });
 
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
-Urgent:
     if (data.startsWith('ch_')) {
         const chNum = data.split('_')[1];
         if (!CHANNELS[chNum].id) {
@@ -54,43 +54,58 @@ Urgent:
             return;
         }
         userState[chatId] = CHANNELS[chNum].id;
-        userCounts[chatId] = { count: 0, label: CHANNELS[chNum].label };
+        
+        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
+
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhej sakte hain (100, 200 ya 500). Sabhi seedha yahin jayengi aur aapko count dikhta rahega.`);
+        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain. Bot unhe line me lagakar ek-ek karke bhejega.`);
     }
 });
 
-bot.on('video', async (msg) => {
+async function processQueue(chatId) {
+    const userQ = userQueues[chatId];
+    if (!userQ || userQ.processing || userQ.queue.length === 0) return;
+
+    userQ.processing = true;
+    const targetChannel = userState[chatId];
+
+    while (userQ.queue.length > 0) {
+        const msgId = userQ.queue.shift();
+        userQ.current++;
+
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await bot.forwardMessage(targetChannel, chatId, msgId);
+            
+            bot.sendMessage(chatId, `🟢 [PASS] (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
+        } catch (error) {
+            console.error(error);
+            bot.sendMessage(chatId, `❌ [REJECT / FAIL] Video #${userQ.current} bhejne me samasya aayi! Kya bot channel par Admin hai?`);
+        }
+    }
+
+    userQ.processing = false;
+}
+
+bot.on('video', (msg) => {
     const chatId = msg.chat.id;
     const targetChannel = userState[chatId];
 
-    // Agar channel select nahi hai, toh automatic buttons bhej do taaki dhundhna na pade!
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle niche diye gaye button se channel select kijiye:", {
+        bot.sendMessage(chatId, "⚠️ Pehle channel select kijiye:", {
             reply_markup: getChannelKeyboard()
         });
         return;
     }
 
-    if (!userCounts[chatId]) {
-        userCounts[chatId] = { count: 0, label: "Channel" };
+    if (!userQueues[chatId]) {
+        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: "Channel" };
     }
 
-    try {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        await bot.forwardMessage(targetChannel, chatId, msg.message_id);
-        
-        userCounts[chatId].count++;
-        const currentCount = userCounts[chatId].count;
-        const channelName = userCounts[chatId].label;
+    userQueues[chatId].queue.push(msg.message_id);
+    userQueues[chatId].total++;
 
-        // Pass hone par turant batayega kitni video chali gayi
-        bot.sendMessage(chatId, `🟢 [PASS] Video #${currentCount} safalta-poorvak **${channelName}** par bhej di gayi hai!`);
-    } catch (error) {
-        console.error(error);
-        // Fail / Reject hone par turant batayega
-        bot.sendMessage(chatId, `❌ [REJECT / FAIL] Ek video bhejane me samasya aayi! Kya bot channel par Admin hai ya net slow hai?`);
-    }
+    processQueue(chatId);
 });
 
 app.get('/', (req, res) => {
