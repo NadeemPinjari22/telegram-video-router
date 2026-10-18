@@ -10,13 +10,8 @@ if (!token) {
     process.exit(1);
 }
 
-// Polling ko hata kar bina polling ke bot initialize karein
 const bot = new TelegramBot(token);
-
-// Render ka URL (Aap apna Render app ka URL yahan daal sakte hain)
-// Jaise: https://telegram-video-router.onrender.com
 const WEBHOOK_URL = process.env.WEBHOOK_URL; 
-
 const WEBHOOK_PATH = `/bot${token}`;
 
 if (WEBHOOK_URL) {
@@ -30,8 +25,12 @@ app.use(express.json());
 
 // Telegram se aane wale updates ko receive karne ke liye route
 app.post(WEBHOOK_PATH, (req, res) => {
-    bot.processUpdate(req.body);
     res.sendStatus(200);
+    try {
+        bot.processUpdate(req.body);
+    } catch (error) {
+        console.error("Error processing update:", error);
+    }
 });
 
 const CHANNELS = {
@@ -67,20 +66,25 @@ bot.onText(/\/start/, (msg) => {
     sendChannelMenu(chatId);
 });
 
-bot.on('callback_query', (query) => {
+bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
     if (data.startsWith('ch_')) {
         const chNum = data.split('_')[1];
         if (!CHANNELS[chNum].id) {
-            bot.answerCallbackQuery(query.id, { text: `Error: Channel ${chNum} set nahi hai.`, show_alert: true });
+            try {
+                await bot.answerCallbackQuery(query.id, { text: `Error: Channel ${chNum} set nahi hai.`, show_alert: true });
+            } catch (e) {}
             return;
         }
         userState[chatId] = CHANNELS[chNum].id;
         userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
 
-        bot.answerCallbackQuery(query.id);
+        try {
+            await bot.answerCallbackQuery(query.id);
+        } catch (e) {}
+
         bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain.`);
     }
 });
@@ -97,12 +101,12 @@ async function processQueue(chatId) {
         userQ.current++;
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit se bachne ke liye thoda gap
             await bot.forwardMessage(targetChannel, chatId, msgId);
             
             bot.sendMessage(chatId, `🟢 [PASS] (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
         } catch (error) {
-            console.error(error);
+            console.error("Forward error:", error);
             bot.sendMessage(chatId, `❌ [REJECT / FAIL] Video #${userQ.current} bhejne me samasya aayi! Kya bot channel par Admin hai?`);
         }
     }
@@ -139,7 +143,7 @@ bot.on('message', (msg) => {
 });
 
 app.get('/', (req, res) => {
-    res.send('Telegram Video Router Bot is running on Webhook!');
+    res.send('Telegram Video Router Bot is running smoothly!');
 });
 
 app.listen(port, () => {
