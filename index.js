@@ -1,144 +1,250 @@
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
+// TELEGRAM MASTER ROUTER
+// 5 CHANNELS | GRAMJS | SEQUENTIAL UPLOAD | FLOODWAIT RETRY
 
-const token = process.env.BOT_TOKEN;
+const express = require("express");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
+
 const app = express();
-const port = process.env.PORT || 10000;
 
-if (!token) {
-    console.error("Error: BOT_TOKEN set nahi hai.");
-    process.exit(1);
-}
+const PORT = Number(process.env.PORT || 10000);
 
-const bot = new TelegramBot(token, { polling: false });
-const WEBHOOK_PATH = `/bot${token}`;
+const DATA_DIR = path.join(__dirname, "router-data");
+const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 
-app.use(express.json());
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-app.post(WEBHOOK_PATH, (req, res) => {
-    res.sendStatus(200);
-    try {
-        bot.processUpdate(req.body);
-    } catch (error) {
-        console.error("Error processing update:", error);
-    }
-});
+app.use(express.json({ limit: "20mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// --------------------------------------------------
+// TELEGRAM CHANNELS
+// --------------------------------------------------
 
 const CHANNELS = {
-    1: { id: process.env.CHANNEL_1, label: process.env.LABEL_1 || 'Channel 1' },
-    2: { id: process.env.CHANNEL_2, label: process.env.LABEL_2 || 'Channel 2' },
-    3: { id: process.env.CHANNEL_3, label: process.env.LABEL_3 || 'Channel 3' },
-    4: { id: process.env.CHANNEL_4, label: process.env.LABEL_4 || 'Channel 4' },
-    5: { id: process.env.CHANNEL_5, label: process.env.LABEL_5 || 'Channel 5' }
+  1: process.env.CHANNEL_1,
+  2: process.env.CHANNEL_2,
+  3: process.env.CHANNEL_3,
+  4: process.env.CHANNEL_4,
+  5: process.env.CHANNEL_5
 };
 
-const userState = {};
-const userQueues = {};
+// --------------------------------------------------
+// UPLOAD SETTINGS
+// --------------------------------------------------
 
-function getChannelKeyboard() {
-    const keyboard = [];
-    for (let i = 1; i <= 5; i++) {
-        if (CHANNELS[i].id) {
-            keyboard.push([{ text: CHANNELS[i].label, callback_data: `ch_${i}` }]);
-        }
+const upload = multer({
+  dest: UPLOAD_DIR,
+  limits: {
+    fileSize: 2 * 1024 * 1024 * 1024
+  }
+});
+
+// --------------------------------------------------
+// TELEGRAM CLIENT
+// --------------------------------------------------
+
+let client = null;
+
+async function getTelegramClient() {
+  if (client) return client;
+
+  const apiId = Number(process.env.API_ID);
+  const apiHash = process.env.API_HASH;
+  const sessionString = process.env.SESSION_STRING;
+
+  if (!apiId) {
+    throw new Error("API_ID missing");
+  }
+
+  if (!apiHash) {
+    throw new Error("API_HASH missing");
+  }
+
+  if (!sessionString) {
+    throw new Error("SESSION_STRING missing");
+  }
+
+  client = new TelegramClient(
+    new StringSession(sessionString),
+    apiId,
+    apiHash,
+    {
+      connectionRetries: 10,
+      retryDelay: 2000
     }
-    return { inline_keyboard: keyboard };
+  );
+
+  await client.connect();
+
+  console.log("Telegram connected successfully");
+
+  return client;
 }
 
-const sendChannelMenu = (chatId) => {
-    bot.sendMessage(chatId, "Namaste! Video forward karne ke liye apna target channel select karein:", {
-        reply_markup: getChannelKeyboard()
-    });
-};
+// --------------------------------------------------
+// FLOOD WAIT
+// --------------------------------------------------
 
-bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    userState[chatId] = null;
-    sendChannelMenu(chatId);
-});
+function getFloodWait(error) {
+  const text = String(error?.message || error || "");
 
-bot.on('callback_query', async (query) => {
-    const chatId = query.message.chat.id;
-    const data = query.data;
+  let match = text.match(/FLOOD_WAIT[_ ](\d+)/i);
 
-    if (data && data.startsWith('ch_')) {
-        const chNum = data.split('_')[1];
-        const selectedChannel = CHANNELS[chNum];
+  if (match) {
+    return Number(match[1]);
+  }
 
-        if (!selectedChannel || !selectedChannel.id) {
-            try {
-                await bot.answerCallbackQuery(query.id, { text: `Error: Channel configure nahi hai!`, show_alert: true });
-            } catch (e) {}
-            return;
-        }
+  match = text.match(/A wait of (\d+) seconds/i);
 
-        userState[chatId] = selectedChannel.id;
-        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: selectedChannel.label };
+  if (match) {
+    return Number(match[1]);
+  }
 
-        try {
-            await bot.answerCallbackQuery(query.id, { text: `${selectedChannel.label} select ho gaya!` });
-        } catch (e) {}
-
-        bot.sendMessage(chatId, `✅ **${selectedChannel.label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhejiye, sabhi ishi channel par line se forward hongi.`);
-    }
-});
-
-async function processQueue(chatId) {
-    const userQ = userQueues[chatId];
-    if (!userQ || userQ.processing || userQ.queue.length === 0) return;
-
-    userQ.processing = true;
-    const targetChannel = userState[chatId];
-
-    while (userQ.queue.length > 0) {
-        const msgId = userQ.queue.shift();
-        userQ.current++;
-
-        try {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await bot.forwardMessage(targetChannel, chatId, msgId);
-            
-            bot.sendMessage(chatId, `🟢 (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
-        } catch (error) {
-            console.error("Forward error:", error);
-            bot.sendMessage(chatId, `❌ Video #${userQ.current} bhejne me error aaya! Check karein ki bot channel par admin hai.`);
-        }
-    }
-
-    userQ.processing = false;
+  return 0;
 }
 
-bot.on('video', (msg) => {
-    const chatId = msg.chat.id;
-    const targetChannel = userState[chatId];
+// --------------------------------------------------
+// SAFE DELAY
+// --------------------------------------------------
 
-    if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle apna target channel select kijiye:", {
-            reply_markup: getChannelKeyboard()
-        });
-        return;
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// --------------------------------------------------
+// UPLOAD TO TELEGRAM
+// --------------------------------------------------
+
+async function uploadToTelegram(
+  filePath,
+  channelNumber,
+  caption = "",
+  progressCallback = null
+) {
+  const telegram = await getTelegramClient();
+
+  const destination = CHANNELS[channelNumber];
+
+  if (!destination) {
+    throw new Error(
+      `CHANNEL_${channelNumber} is not configured`
+    );
+  }
+
+  return await telegram.sendFile(destination, {
+    file: filePath,
+
+    caption: caption,
+
+    forceDocument: false,
+
+    supportsStreaming: true,
+
+    progressCallback: (uploaded, total) => {
+      if (!progressCallback) return;
+
+      if (!total) return;
+
+      const percent = Math.floor(
+        (Number(uploaded) / Number(total)) * 100
+      );
+
+      progressCallback(percent);
     }
+  });
+}
 
-    if (!userQueues[chatId]) {
-        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: "Channel" };
+// --------------------------------------------------
+// RETRY SYSTEM
+// --------------------------------------------------
+
+async function uploadWithRetry(
+  filePath,
+  channelNumber,
+  caption,
+  progressCallback
+) {
+  const MAX_RETRIES = 10;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+
+    try {
+
+      console.log(
+        `Uploading ${path.basename(filePath)} to Channel ${channelNumber}`
+      );
+
+      const result = await uploadToTelegram(
+        filePath,
+        channelNumber,
+        caption,
+        progressCallback
+      );
+
+      return result;
+
+    } catch (error) {
+
+      console.error(
+        `Upload attempt ${attempt} failed:`,
+        error.message
+      );
+
+      const floodWait = getFloodWait(error);
+
+      if (floodWait > 0) {
+
+        // Maximum safety wait: 30 minutes
+        const safeWait = Math.min(
+          floodWait + 3,
+          1800
+        );
+
+        console.log(
+          `Telegram FloodWait: waiting ${safeWait} seconds`
+        );
+
+        await delay(safeWait * 1000);
+
+        continue;
+      }
+
+      if (attempt >= MAX_RETRIES) {
+        throw error;
+      }
+
+      // Normal temporary error
+      await delay(
+        Math.min(attempt * 3000, 15000)
+      );
     }
+  }
 
-    userQueues[chatId].queue.push(msg.message_id);
-    userQueues[chatId].total++;
+  throw new Error("Maximum retry limit reached");
+}
 
-    processQueue(chatId);
+// --------------------------------------------------
+// HEALTH CHECK
+// --------------------------------------------------
+
+app.get("/health", (req, res) => {
+
+  res.json({
+    ok: true,
+    service: "Telegram Master Router",
+    time: new Date().toISOString()
+  });
+
 });
 
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    if (msg.text && !msg.text.startsWith('/') && !userState[chatId]) {
-        sendChannelMenu(chatId);
-    }
-});
+// --------------------------------------------------
+// CONFIG CHECK
+// --------------------------------------------------
 
-app.get('/', (req, res) => {
-    res.send('Telegram Video Router Bot is running smoothly!');
-});
+app.get("/api/config", (req, res) => {
 
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+  const result
