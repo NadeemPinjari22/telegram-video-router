@@ -143,10 +143,3 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
     
-    // Automatic Webhook Setter (No manual browser link needed!)
-    const renderUrl = process.env.RENDER_EXTERNAL_URL || 'https://telegram-video-router.onrender.com';
-    bot.setWebHook(`${renderUrl}/bot${token}`)
-        .then(() => console.log("Webhook automatically set ho gaya!"))
-        .catch(err => console.log("Webhook error:", err.message));
-});
-        
