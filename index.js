@@ -1,84 +1,149 @@
-const { Telegraf, Markup } = require("telegraf");
 const express = require("express");
+const https = require("https");
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 10000);
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
 const app = express();
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const token = process.env.BOT_TOKEN;
-const bot = new Telegraf(token);
+// Telegram API ko request bhejne ka function
+function tgApi(method, payload) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(payload);
+    const options = {
+      hostname: "api.telegram.org",
+      port: 443,
+      path: `/bot${BOT_TOKEN}/${method}`,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(data)
+      }
+    };
 
-// यूजर का डेटा स्टोर करने के लिए
-const userSessions = new Map();
-
-// /start कमांड भेजने पर बटन दिखेंगे
-bot.start((ctx) => {
-  ctx.reply(
-    "👋 नमस्ते! वीडियो किस चैनल पर भेजना है, कृपया नीचे दिए गए बटन से चुनें:",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("Channel 1 📢", "ch_1"), Markup.button.callback("Channel 2 📢", "ch_2")],
-      [Markup.button.callback("Channel 3 📢", "ch_3")]
-    ])
-  );
-});
-
-// जब यूजर वीडियो भेजेगा
-bot.on("video", async (ctx) => {
-  const userId = ctx.from.id;
-  const fileId = ctx.message.video.file_id;
-
-  userSessions.set(userId, { fileId, caption: ctx.message.caption || "" });
-
-  await ctx.reply(
-    "✅ वीडियो मिल गया! अब कृपया चुनें कि इसे किस चैनल पर भेजना है:",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("Channel 1 📢", "ch_1"), Markup.button.callback("Channel 2 📢", "ch_2")],
-      [Markup.button.callback("Channel 3 📢", "ch_3")]
-    ])
-  );
-});
-
-// जब यूजर किसी चैनल के बटन पर क्लिक करेगा
-bot.action(/ch_\d/, async (ctx) => {
-  const userId = ctx.from.id;
-  const channelNum = ctx.match[0].split("_")[1];
-
-  const session = userSessions.get(userId);
-  if (!session) {
-    return ctx.reply("❌ कोई वीडियो नहीं मिला। कृपया पहले वीडियो भेजें।");
-  }
-
-  await ctx.editMessageText(`⏳ वीडियो Channel ${channelNum} पर भेजा जा रहा है, कृपया इंतज़ार करें...`);
-
-  try {
-    const channelUsername = process.env["CHANNEL_" + channelNum];
-    if (!channelUsername) {
-      return ctx.reply(`❌ एरर: Render के Environment में CHANNEL_${channelNum} सेट नहीं है।`);
-    }
-
-    await ctx.telegram.sendVideo(channelUsername, session.fileId, {
-      caption: session.caption
+    const req = https.request(options, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (e) {
+          reject(e);
+        }
+      });
     });
 
-    await ctx.reply(`🎉 बधाई हो! वीडियो सफलतापूर्वक Channel ${channelNum} (${channelUsername}) पर भेज दिया गया है।`);
-    userSessions.delete(userId);
+    req.on("error", reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+// Render check route
+app.get("/", (req, res) => {
+  res.send("🚀 Telegram Video Router with 5 Channels is Live!");
+});
+
+// Telegram Webhook
+app.post("/", async (req, res) => {
+  res.sendStatus(200);
+
+  const update = req.body;
+  try {
+    if (update.message) {
+      const chatId = update.message.chat.id;
+      const video = update.message.video;
+      const text = update.message.text;
+
+      if (text === "/start") {
+        await tgApi("sendMessage", {
+          chat_id: chatId,
+          text: "👋 Namaste! Kripya chune ki video kis channel par bhejna hai (1 se 5):",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Channel 1 📢", callback_data: "ch_1" },
+                { text: "Channel 2 📢", callback_data: "ch_2" }
+              ],
+              [
+                { text: "Channel 3 📢", callback_data: "ch_3" },
+                { text: "Channel 4 📢", callback_data: "ch_4" }
+              ],
+              [
+                { text: "Channel 5 📢", callback_data: "ch_5" }
+              ]
+            ]
+          }
+        });
+      } else if (video) {
+        const fileId = video.file_id;
+
+        await tgApi("sendMessage", {
+          chat_id: chatId,
+          text: `✅ Video mil gaya! Ab niche diye gaye 5 channels me se koi ek chune:`,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Channel 1 📢", callback_data: `send_${fileId}_1` },
+                { text: "Channel 2 📢", callback_data: `send_${fileId}_2` }
+              ],
+              [
+                { text: "Channel 3 📢", callback_data: `send_${fileId}_3` },
+                { text: "Channel 4 📢", callback_data: `send_${fileId}_4` }
+              ],
+              [
+                { text: "Channel 5 📢", callback_data: `send_${fileId}_5` }
+              ]
+            ]
+          }
+        });
+      }
+    }
+
+    if (update.callback_query) {
+      const callbackQuery = update.callback_query;
+      const chatId = callbackQuery.message.chat.id;
+      const data = callbackQuery.data;
+
+      if (data.startsWith("send_")) {
+        const parts = data.split("_");
+        const fileId = parts[1];
+        const channelNum = parts[2];
+        const channelUsername = process.env["CHANNEL_" + channelNum];
+
+        if (!channelUsername) {
+          await tgApi("sendMessage", {
+            chat_id: chatId,
+            text: `❌ Error: Render environment me CHANNEL_${channelNum} set nahi hai.`
+          });
+          return;
+        }
+
+        await tgApi("sendVideo", {
+          chat_id: channelUsername,
+          video: fileId,
+          caption: "Mahale Electronic & NP Decoration Video"
+        });
+
+        await tgApi("sendMessage", {
+          chat_id: chatId,
+          text: `🎉 Badhai ho! Video safaltapurvak Channel ${channelNum} (${channelUsername}) par bhej diya gaya hai.`
+        });
+      }
+    }
   } catch (err) {
-    console.error(err);
-    await ctx.reply(`❌ वीडियो भेजने में एरर आया: ${err.message}`);
+    console.error("Webhook Error:", err);
   }
 });
 
-// Render के लिए एक्सप्रेस सर्वर
-app.get("/", (req, res) => {
-  res.send("🚀 Telegram Video Router Bot is LIVE with Buttons!");
-});
-
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server is running on port ${PORT}`);
-  bot.launch();
+  
+  const renderUrl = process.env.RENDER_EXTERNAL_URL;
+  if (renderUrl) {
+    await tgApi("setWebhook", { url: renderUrl });
+    console.log("Webhook automatically set to:", renderUrl);
+  }
 });
-
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
