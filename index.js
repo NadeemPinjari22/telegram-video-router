@@ -1,5 +1,5 @@
 const express = require("express");
-const https = require("https");
+const https = https || require("https");
 
 const PORT = Number(process.env.PORT || 10000);
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -8,13 +8,13 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 👉 YAHAN APNE HISAAB SE CHANNEL KE NAAM AUR USERNAME SET KAREIN:
+// 👉 YAHAN APNE CHANNELS KE NAAM AUR UNKI ID (-100xxxxxxx) DALEN:
 const BUTTON_CHANNELS = {
-  btn_1: { label: "Channel 1 (Name)", target: "@AapkaPehlaChannel" },
-  btn_2: { label: "Channel 2 (Name)", target: "@AapkaDusraChannel" },
-  btn_3: { label: "Channel 3 (Name)", target: "@AapkaTeesraChannel" },
-  btn_4: { label: "Channel 4 (Name)", target: "@AapkaChauthaChannel" },
-  btn_5: { label: "Channel 5 (Name)", target: "@AapkaPanchvaChannel" }
+  btn_1: { label: "Channel 1", target: "-100PehliChannelID" },
+  btn_2: { label: "Channel 2", target: "-100DusriChannelID" },
+  btn_3: { label: "Channel 3", target: "-100TeesriChannelID" },
+  btn_4: { label: "Channel 4", target: "-100ChauthiChannelID" },
+  btn_5: { label: "Channel 5", target: "-100PanchviChannelID" }
 };
 
 function tgApi(method, payload) {
@@ -108,16 +108,23 @@ app.post("/", async (req, res) => {
           return;
         }
 
-        await tgApi("sendVideo", {
+        const result = await tgApi("sendVideo", {
           chat_id: channelObj.target,
           video: fileId,
           caption: update.message?.caption || ""
         });
 
-        await tgApi("sendMessage", {
-          chat_id: chatId,
-          text: `🎉 Badhai ho! Video safaltapurvak ${channelObj.label} (${channelObj.target}) par bhej diya gaya hai.`
-        });
+        if (result.ok) {
+          await tgApi("sendMessage", {
+            chat_id: chatId,
+            text: `🎉 Badhai ho! Video safaltapurvak ${channelObj.label} par bhej diya gaya hai.`
+          });
+        } else {
+          await tgApi("sendMessage", {
+            chat_id: chatId,
+            text: `❌ Error: Video nahi gaya. Telegram ka error: ${result.description}`
+          });
+        }
       }
     }
   } catch (err) {
