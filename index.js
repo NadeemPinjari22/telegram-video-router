@@ -1,153 +1,82 @@
-const express = require("express");
-const httpsModule = require("https");
+const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
 
-const PORT = Number(process.env.PORT || 10000);
-const BOT_TOKEN = process.env.BOT_TOKEN;
-
+const token = process.env.BOT_TOKEN;
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const port = process.env.PORT || 10000;
 
-function tgApi(method, payload) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify(payload);
-    const options = {
-      hostname: "api.telegram.org",
-      port: 443,
-      path: `/bot${BOT_TOKEN}/${method}`,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(data)
-      }
-    };
-
-    const req = httpsModule.request(options, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-
-    req.on("error", reject);
-    req.write(data);
-    req.end();
-  });
+if (!token) {
+    console.error("Error: BOT_TOKEN set nahi hai.");
+    process.exit(1);
 }
 
-app.get("/", (req, res) => {
-  res.send("🚀 Telegram Permanent Environment-Controlled Bot is Live!");
-});
+const bot = new TelegramBot(token, { polling: true });
 
-app.post("/", async (req, res) => {
-  res.sendStatus(200);
+const CHANNELS = {
+    1: { id: process.env.CHANNEL_1, label: process.env.LABEL_1 || 'Channel 1' },
+    2: { id: process.env.CHANNEL_2, label: process.env.LABEL_2 || 'Channel 2' },
+    3: { id: process.env.CHANNEL_3, label: process.env.LABEL_3 || 'Channel 3' },
+    4: { id: process.env.CHANNEL_4, label: process.env.LABEL_4 || 'Channel 4' },
+    5: { id: process.env.CHANNEL_5, label: process.env.LABEL_5 || 'Channel 5' }
+};
 
-  const update = req.body;
-  try {
-    if (update.message) {
-      const chatId = update.message.chat.id;
-      const video = update.message.video;
-      const text = update.message.text;
+const userState = {};
 
-      if (text === "/start" || video) {
-        const fileId = video ? video.file_id : "";
-        const actionPrefix = video ? `send_${fileId}_` : "btn_";
-
-        // Render environment se button ke naam uthayenge
-        const c1 = process.env.LABEL_1 || "Channel 1";
-        const c2 = process.env.LABEL_2 || "Channel 2";
-        const c3 = process.env.LABEL_3 || "Channel 3";
-        const c4 = process.env.LABEL_4 || "Channel 4";
-        const c5 = process.env.LABEL_5 || "Channel 5";
-
-        await tgApi("sendMessage", {
-          chat_id: chatId,
-          text: video ? "✅ Video mil gaya! Ab chuniye ki ise kis channel par bhejna hai:" : "👋 Namaste! Chuniye ki video kis channel par bhejna hai:",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: c1, callback_data: actionPrefix + "1" },
-                { text: c2, callback_data: actionPrefix + "2" }
-              ],
-              [
-                { text: c3, callback_data: actionPrefix + "3" },
-                { text: c4, callback_data: actionPrefix + "4" }
-              ],
-              [
-                { text: c5, callback_data: actionPrefix + "5" }
-              ]
-            ]
-          }
-        });
-      }
-    }
-
-    if (update.callback_query) {
-      const callbackQuery = update.callback_query;
-      const chatId = callbackQuery.message.chat.id;
-      const data = callbackQuery.data;
-
-      if (data.includes("btn_") || data.includes("send_")) {
-        const parts = data.split("_");
-        const num = parts[parts.length - 1]; // Button ka number (1 se 5)
-        const fileId = data.startsWith("send_") ? parts[1] : "";
-
-        // Render environment se asli channel ID aur label nikalna
-        const targetChannel = process.env["CHANNEL_" + num];
-        const channelLabel = process.env["LABEL_" + num] || ("Channel " + num);
-
-        if (!targetChannel) {
-          await tgApi("sendMessage", {
-            chat_id: chatId,
-            text: `❌ Error: Render Environment mein CHANNEL_${num} set nahi hai.`
-          });
-          return;
-        }
-
-        if (!fileId) {
-          await tgApi("sendMessage", {
-            chat_id: chatId,
-            text: `ℹ️ Aapne ${channelLabel} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`
-          });
-          return;
-        }
-
-        const result = await tgApi("sendVideo", {
-          chat_id: targetChannel,
-          video: fileId,
-          caption: callbackQuery.message?.caption || ""
-        });
-
-        if (result.ok) {
-          await tgApi("sendMessage", {
-            chat_id: chatId,
-            text: `🎉 Badhai ho! Video safaltapurvak ${channelLabel} par bhej diya gaya hai.`
-          });
-        } else {
-          await tgApi("sendMessage", {
-            chat_id: chatId,
-            text: `❌ Error: Video nahi gaya. Telegram ka error: ${result.description}`
-          });
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Webhook Error:", err);
-  }
-});
-
-app.listen(PORT, async () => {
-  console.log(`Server is running on port ${PORT}`);
-  
-  const renderUrl = process.env.RENDER_EXTERNAL_URL;
-  if (renderUrl) {
-    await tgApi("setWebhook", { url: renderUrl });
-    console.log("Webhook automatically set to:", renderUrl);
-  }
-});
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    userState[chatId] = null;
     
+    const keyboard = [];
+    for (let i = 1; i <= 5; i++) {
+        if (CHANNELS[i].id) {
+            keyboard.push([{ text: CHANNELS[i].label, callback_data: `ch_${i}` }]);
+        }
+    }
+
+    bot.sendMessage(chatId, "Namaste! Chuniye ki video kis channel par bhejna hai:", {
+        reply_markup: { inline_keyboard: keyboard }
+    });
+});
+
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    if (data.startsWith('ch_')) {
+        const chNum = data.split('_')[1];
+        if (!CHANNELS[chNum].id) {
+            bot.answerCallbackQuery(query.id, { text: `Error: Channel ${chNum} set nahi hai.`, show_alert: true });
+            return;
+        }
+        userState[chatId] = CHANNELS[chNum].id;
+        bot.answerCallbackQuery(query.id);
+        bot.sendMessage(chatId, `ℹ️ Aapne ${CHANNELS[chNum].label} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`);
+    }
+});
+
+bot.on('video', async (msg) => {
+    const chatId = msg.chat.id;
+    const targetChannel = userState[chatId];
+
+    if (!targetChannel) {
+        bot.sendMessage(chatId, "⚠️ Pehle kisi channel ka button dabaiye, fir video bhejiye!");
+        return;
+    }
+
+    try {
+        await bot.forwardMessage(targetChannel, chatId, msg.message_id);
+        bot.sendMessage(chatId, "✅ Video safalta-poorvak channel par bhej di gayi hai!");
+        userState[chatId] = null;
+    } catch (error) {
+        console.error(error);
+        bot.sendMessage(chatId, `❌ Error: Video bhejne me samasya aayi. Kya bot channel par Admin hai?`);
+    }
+});
+
+app.get('/', (req, res) => {
+    res.send('Telegram Video Router Bot is running!');
+});
+
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+});
