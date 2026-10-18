@@ -8,7 +8,15 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Telegram API ko request bhejne ka function
+// 👉 YAHAN APNE HISAAB SE CHANNEL KE NAAM AUR USERNAME SET KAREIN:
+const BUTTON_CHANNELS = {
+  btn_1: { label: "Channel 1 (Name)", target: "@AapkaPehlaChannel" },
+  btn_2: { label: "Channel 2 (Name)", target: "@AapkaDusraChannel" },
+  btn_3: { label: "Channel 3 (Name)", target: "@AapkaTeesraChannel" },
+  btn_4: { label: "Channel 4 (Name)", target: "@AapkaChauthaChannel" },
+  btn_5: { label: "Channel 5 (Name)", target: "@AapkaPanchvaChannel" }
+};
+
 function tgApi(method, payload) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(payload);
@@ -41,12 +49,10 @@ function tgApi(method, payload) {
   });
 }
 
-// Render check route
 app.get("/", (req, res) => {
-  res.send("🚀 Telegram Video Router with 5 Channels is Live!");
+  res.send("🚀 Telegram Custom Control Bot is Live!");
 });
 
-// Telegram Webhook
 app.post("/", async (req, res) => {
   res.sendStatus(200);
 
@@ -57,44 +63,25 @@ app.post("/", async (req, res) => {
       const video = update.message.video;
       const text = update.message.text;
 
-      if (text === "/start") {
-        await tgApi("sendMessage", {
-          chat_id: chatId,
-          text: "👋 Namaste! Kripya chune ki video kis channel par bhejna hai (1 se 5):",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: "Channel 1 📢", callback_data: "ch_1" },
-                { text: "Channel 2 📢", callback_data: "ch_2" }
-              ],
-              [
-                { text: "Channel 3 📢", callback_data: "ch_3" },
-                { text: "Channel 4 📢", callback_data: "ch_4" }
-              ],
-              [
-                { text: "Channel 5 📢", callback_data: "ch_5" }
-              ]
-            ]
-          }
-        });
-      } else if (video) {
-        const fileId = video.file_id;
+      if (text === "/start" || video) {
+        const fileId = video ? video.file_id : "";
+        const actionPrefix = video ? `send_${fileId}_` : "btn_";
 
         await tgApi("sendMessage", {
           chat_id: chatId,
-          text: `✅ Video mil gaya! Ab niche diye gaye 5 channels me se koi ek chune:`,
+          text: video ? "✅ Video mil gaya! Ab chuniye ki ise kis channel par bhejna hai:" : "👋 Namaste! Chuniye ki video kis channel par bhejna hai:",
           reply_markup: {
             inline_keyboard: [
               [
-                { text: "Channel 1 📢", callback_data: `send_${fileId}_1` },
-                { text: "Channel 2 📢", callback_data: `send_${fileId}_2` }
+                { text: BUTTON_CHANNELS.btn_1.label, callback_data: actionPrefix + "btn_1" },
+                { text: BUTTON_CHANNELS.btn_2.label, callback_data: actionPrefix + "btn_2" }
               ],
               [
-                { text: "Channel 3 📢", callback_data: `send_${fileId}_3` },
-                { text: "Channel 4 📢", callback_data: `send_${fileId}_4` }
+                { text: BUTTON_CHANNELS.btn_3.label, callback_data: actionPrefix + "btn_3" },
+                { text: BUTTON_CHANNELS.btn_4.label, callback_data: actionPrefix + "btn_4" }
               ],
               [
-                { text: "Channel 5 📢", callback_data: `send_${fileId}_5` }
+                { text: BUTTON_CHANNELS.btn_5.label, callback_data: actionPrefix + "btn_5" }
               ]
             ]
           }
@@ -107,29 +94,29 @@ app.post("/", async (req, res) => {
       const chatId = callbackQuery.message.chat.id;
       const data = callbackQuery.data;
 
-      if (data.startsWith("send_")) {
-        const parts = data.split("_");
-        const fileId = parts[1];
-        const channelNum = parts[2];
-        const channelUsername = process.env["CHANNEL_" + channelNum];
+      if (data.includes("btn_")) {
+        const parts = data.split("btn_");
+        const fileId = parts[0].replace("send_", "");
+        const btnKey = "btn_" + parts[1];
+        const channelObj = BUTTON_CHANNELS[btnKey];
 
-        if (!channelUsername) {
+        if (!fileId) {
           await tgApi("sendMessage", {
             chat_id: chatId,
-            text: `❌ Error: Render environment me CHANNEL_${channelNum} set nahi hai.`
+            text: `ℹ️ Aapne ${channelObj.label} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`
           });
           return;
         }
 
         await tgApi("sendVideo", {
-          chat_id: channelUsername,
+          chat_id: channelObj.target,
           video: fileId,
-          caption: "Mahale Electronic & NP Decoration Video"
+          caption: update.message?.caption || ""
         });
 
         await tgApi("sendMessage", {
           chat_id: chatId,
-          text: `🎉 Badhai ho! Video safaltapurvak Channel ${channelNum} (${channelUsername}) par bhej diya gaya hai.`
+          text: `🎉 Badhai ho! Video safaltapurvak ${channelObj.label} (${channelObj.target}) par bhej diya gaya hai.`
         });
       }
     }
