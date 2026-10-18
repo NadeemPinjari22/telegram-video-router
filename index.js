@@ -33,16 +33,27 @@ function getChannelKeyboard() {
     return { inline_keyboard: keyboard };
 }
 
-// Jaise hi aap bot ko kuch bhi message karenge, saare channels ke buttons turant samne aa jayenge
+// 1. /start likhne par turant buttons dikhayein
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    userState[chatId] = null;
+    bot.sendMessage(chatId, "Namaste! Channel select karne ke liye niche diye gaye button par click karein:", {
+        reply_markup: getChannelKeyboard()
+    });
+});
+
+// 2. Koi bhi text (jaise 'hi', 'c', ya koi bhi akshar) likhne par bhi turant buttons dikhayein
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    if (!msg.video && !msg.text?.startsWith('/')) {
-        bot.sendMessage(chatId, "Namaste! Video bhejne ke liye pehle apna channel select karein:", {
+    // Agar message me video nahi hai aur text command nahi hai
+    if (!msg.video && msg.text && !msg.text.startsWith('/')) {
+        bot.sendMessage(chatId, "Namaste! Yeh lijiye aapke saare channels, ek select karein:", {
             reply_markup: getChannelKeyboard()
         });
     }
 });
 
+// 3. Channel select hone par
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
@@ -54,14 +65,14 @@ bot.on('callback_query', (query) => {
             return;
         }
         userState[chatId] = CHANNELS[chNum].id;
-        
         userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
 
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain. Bot unhe line me lagakar ek-ek karke bhejega.`);
+        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath bhej sakte hain. Bot line me lagakar ek-ek karke bhejega.`);
     }
 });
 
+// 4. Queue system for bulk videos
 async function processQueue(chatId) {
     const userQ = userQueues[chatId];
     if (!userQ || userQ.processing || userQ.queue.length === 0) return;
@@ -87,6 +98,7 @@ async function processQueue(chatId) {
     userQ.processing = false;
 }
 
+// 5. Video aane par queue me dalna
 bot.on('video', (msg) => {
     const chatId = msg.chat.id;
     const targetChannel = userState[chatId];
@@ -115,3 +127,4 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+                
