@@ -50,7 +50,7 @@ bot.on('callback_query', (query) => {
         }
         userState[chatId] = CHANNELS[chNum].id;
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `ℹ️ Aapne ${CHANNELS[chNum].label} select kiya hai. Ab koi video bhejiye taaki us par bhej sakein.`);
+        bot.sendMessage(chatId, `Aapne ${CHANNELS[chNum].label} select kiya hai. Ab aap jitni marzi chahein videos bhej sakte hain, sabhi usi channel par jati jayengi!`);
     }
 });
 
@@ -59,17 +59,16 @@ bot.on('video', async (msg) => {
     const targetChannel = userState[chatId];
 
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle kisi channel ka button dabaiye, fir video bhejiye!");
+        bot.sendMessage(chatId, "Pehle kisi channel ka button dabaiye, fir video bhejiye!");
         return;
     }
 
     try {
+        await new Promise(resolve => setTimeout(resolve, 400));
         await bot.forwardMessage(targetChannel, chatId, msg.message_id);
-        bot.sendMessage(chatId, "✅ Video safalta-poorvak channel par bhej di gayi hai!");
-        userState[chatId] = null;
     } catch (error) {
         console.error(error);
-        bot.sendMessage(chatId, `❌ Error: Video bhejne me samasya aayi. Kya bot channel par Admin hai?`);
+        bot.sendMessage(chatId, "Video bhejne me samasya aayi. Kripya check karein ki bot channel par Admin hai.");
     }
 });
 
