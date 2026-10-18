@@ -21,20 +21,24 @@ const CHANNELS = {
 };
 
 const userState = {};
+const userCounts = {};
 
-bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    userState[chatId] = null;
-    
+function getChannelKeyboard() {
     const keyboard = [];
     for (let i = 1; i <= 5; i++) {
         if (CHANNELS[i].id) {
             keyboard.push([{ text: CHANNELS[i].label, callback_data: `ch_${i}` }]);
         }
     }
+    return { inline_keyboard: keyboard };
+}
 
-    bot.sendMessage(chatId, "Namaste! Chuniye ki video kis channel par bhejna hai:", {
-        reply_markup: { inline_keyboard: keyboard }
+// Jab bhi koi /start likhe ya kuch bhi bole ya bot khole, seedha buttons dikhao
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    userState[chatId] = null;
+    bot.sendMessage(chatId, "Namaste! Yeh lijiye aapke saare channels. Koi ek select kijiye:", {
+        reply_markup: getChannelKeyboard()
     });
 });
 
@@ -42,6 +46,7 @@ bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
+Urgent:
     if (data.startsWith('ch_')) {
         const chNum = data.split('_')[1];
         if (!CHANNELS[chNum].id) {
@@ -49,8 +54,9 @@ bot.on('callback_query', (query) => {
             return;
         }
         userState[chatId] = CHANNELS[chNum].id;
+        userCounts[chatId] = { count: 0, label: CHANNELS[chNum].label };
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `Aapne ${CHANNELS[chNum].label} select kiya hai. Ab aap jitni marzi chahein videos bhej sakte hain, sabhi usi channel par jati jayengi!`);
+        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhej sakte hain (100, 200 ya 500). Sabhi seedha yahin jayengi aur aapko count dikhta rahega.`);
     }
 });
 
@@ -58,17 +64,32 @@ bot.on('video', async (msg) => {
     const chatId = msg.chat.id;
     const targetChannel = userState[chatId];
 
+    // Agar channel select nahi hai, toh automatic buttons bhej do taaki dhundhna na pade!
     if (!targetChannel) {
-        bot.sendMessage(chatId, "Pehle kisi channel ka button dabaiye, fir video bhejiye!");
+        bot.sendMessage(chatId, "⚠️ Pehle niche diye gaye button se channel select kijiye:", {
+            reply_markup: getChannelKeyboard()
+        });
         return;
     }
 
+    if (!userCounts[chatId]) {
+        userCounts[chatId] = { count: 0, label: "Channel" };
+    }
+
     try {
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await new Promise(resolve => setTimeout(resolve, 300));
         await bot.forwardMessage(targetChannel, chatId, msg.message_id);
+        
+        userCounts[chatId].count++;
+        const currentCount = userCounts[chatId].count;
+        const channelName = userCounts[chatId].label;
+
+        // Pass hone par turant batayega kitni video chali gayi
+        bot.sendMessage(chatId, `🟢 [PASS] Video #${currentCount} safalta-poorvak **${channelName}** par bhej di gayi hai!`);
     } catch (error) {
         console.error(error);
-        bot.sendMessage(chatId, "Video bhejne me samasya aayi. Kripya check karein ki bot channel par Admin hai.");
+        // Fail / Reject hone par turant batayega
+        bot.sendMessage(chatId, `❌ [REJECT / FAIL] Ek video bhejane me samasya aayi! Kya bot channel par Admin hai ya net slow hai?`);
     }
 });
 
