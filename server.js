@@ -176,7 +176,7 @@ function requireEnv() {
   const apiHash = process.env.API_HASH;
 
   if (!apiId || !apiHash) {
-    throw new Error("API_ID and API_HASH are missing in Replit Secrets.");
+    throw new Error("API_ID and API_HASH are missing in Environment Variables.");
   }
 
   return { apiId, apiHash };
@@ -241,7 +241,7 @@ async function resolveChannel(client, channelNo) {
 
   if (!ch || !ch.ref) {
     throw new Error(
-      `CHANNEL_${channelNo} is missing in Replit Secrets.`
+      `CHANNEL_${channelNo} is missing in Environment Variables.`
     );
   }
 
@@ -1049,87 +1049,87 @@ input,select{
   width:100%;
   padding:11px;
   border:1px solid #cbd5e1;
-border-radius:9px
+  border-radius:9px
 }
 
 .filebox{
-border:2px dashed #b9c5d4;
-border-radius:12px;
-padding:24px;
-text-align:center
+  border:2px dashed #b9c5d4;
+  border-radius:12px;
+  padding:24px;
+  text-align:center
 }
 
 .row{
-display:flex;
-gap:10px;
-align-items:center
+  display:flex;
+  gap:10px;
+  align-items:center
 }
 
 .row>*{
-flex:1
+  flex:1
 }
 
 .progress{
-height:10px;
-background:#e5e7eb;
-border-radius:20px;
-overflow:hidden
+  height:10px;
+  background:#e5e7eb;
+  border-radius:20px;
+  overflow:hidden
 }
 
 .bar{
-height:100%;
-width:0;
-background:#2563eb;
-transition:width .2s
+  height:100%;
+  width:0;
+  background:#2563eb;
+  transition:width .2s
 }
 
 .item{
-padding:10px 0;
-border-bottom:1px solid #edf0f4
+  padding:10px 0;
+  border-bottom:1px solid #edf0f4
 }
 
 .ok{
-color:#059669;
-font-weight:700
+  color:#059669;
+  font-weight:700
 }
 
 .bad{
-color:#dc2626;
-font-weight:700
+  color:#dc2626;
+  font-weight:700
 }
 
 .blue{
-color:#2563eb;
-font-weight:700
+  color:#2563eb;
+  font-weight:700
 }
 
 .log{
-height:190px;
-overflow:auto;
-background:#111827;
-color:#d1fae5;
-padding:12px;
-border-radius:10px;
-font:12px monospace
+  height:190px;
+  overflow:auto;
+  background:#111827;
+  color:#d1fae5;
+  padding:12px;
+  border-radius:10px;
+  font:12px monospace
 }
 
 .small{
-font-size:12px
+  font-size:12px
 }
 
 .hidden{
-display:none
+  display:none
 }
 
 @media(max-width:700px){
-.grid{
-grid-template-columns:1fr 1fr
-}
+  .grid{
+    grid-template-columns:1fr 1fr
+  }
 
-.row{
-flex-direction:column;
-align-items:stretch
-}
+  .row{
+    flex-direction:column;
+    align-items:stretch
+  }
 }
 </style>
 </head>
@@ -1146,38 +1146,4 @@ align-items:stretch
 </div>
 
 <div class="card">
-<h2>Telegram Connection</h2>
-<div id="auth-section">
-  <div class="muted">Checking connection status...</div>
-</div>
-</div>
-
-</div>
-
-<script>
-async function checkAuth() {
-  try {
-    const res = await fetch('/api/auth/status');
-    const data = await res.json();
-    const section = document.getElementById('auth-section');
-    
-    if (data.authorized || data.hasSession) {
-      section.innerHTML = `<div class="ok">✓ Telegram Client is Authorized and Connected!</div>`;
-    } else {
-      section.innerHTML = `<div class="bad">⚠️ Session not found. Please check your API_ID, API_HASH and SESSION_STRING in Environment Variables.</div>`;
-    }
-  } catch (e) {
-    console.error(e);
-  }
-}
-checkAuth();
-</script>
-
-</body>
-</html>
-`;
-
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-  
+<h2>Telegram Conne
