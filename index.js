@@ -11,19 +11,10 @@ if (!token) {
 }
 
 const bot = new TelegramBot(token);
-const WEBHOOK_URL = process.env.WEBHOOK_URL; 
 const WEBHOOK_PATH = `/bot${token}`;
-
-if (WEBHOOK_URL) {
-    bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-    console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
-} else {
-    console.log("Warning: WEBHOOK_URL environment variable set nahi hai!");
-}
 
 app.use(express.json());
 
-// Telegram se aane wale updates ko receive karne ke liye route
 app.post(WEBHOOK_PATH, (req, res) => {
     res.sendStatus(200);
     try {
@@ -66,26 +57,30 @@ bot.onText(/\/start/, (msg) => {
     sendChannelMenu(chatId);
 });
 
+// Yahan callback query ko bilkul seedha aur pakka kar diya hai
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
-    if (data.startsWith('ch_')) {
+    if (data && data.startsWith('ch_')) {
         const chNum = data.split('_')[1];
-        if (!CHANNELS[chNum].id) {
+        const selectedChannel = CHANNELS[chNum];
+
+        if (!selectedChannel || !selectedChannel.id) {
             try {
-                await bot.answerCallbackQuery(query.id, { text: `Error: Channel ${chNum} set nahi hai.`, show_alert: true });
+                await bot.answerCallbackQuery(query.id, { text: `Error: Yeh channel set nahi hai!`, show_alert: true });
             } catch (e) {}
             return;
         }
-        userState[chatId] = CHANNELS[chNum].id;
-        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
+
+        userState[chatId] = selectedChannel.id;
+        userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: selectedChannel.label };
 
         try {
-            await bot.answerCallbackQuery(query.id);
+            await bot.answerCallbackQuery(query.id, { text: `${selectedChannel.label} select ho gaya!` });
         } catch (e) {}
 
-        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain.`);
+        bot.sendMessage(chatId, `✅ **${selectedChannel.label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos bhejiye, sabhi ishi channel par jayengi.`);
     }
 });
 
@@ -101,13 +96,13 @@ async function processQueue(chatId) {
         userQ.current++;
 
         try {
-            await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit se bachne ke liye thoda gap
+            await new Promise(resolve => setTimeout(resolve, 1200));
             await bot.forwardMessage(targetChannel, chatId, msgId);
             
-            bot.sendMessage(chatId, `🟢 [PASS] (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
+            bot.sendMessage(chatId, `🟢 (${userQ.current}/${userQ.total}) Video safalta-poorvak **${userQ.label}** par bhej di gayi hai!`);
         } catch (error) {
             console.error("Forward error:", error);
-            bot.sendMessage(chatId, `❌ [REJECT / FAIL] Video #${userQ.current} bhejne me samasya aayi! Kya bot channel par Admin hai?`);
+            bot.sendMessage(chatId, `❌ Video #${userQ.current} bhejne me samasya aayi!`);
         }
     }
 
@@ -119,7 +114,7 @@ bot.on('video', (msg) => {
     const targetChannel = userState[chatId];
 
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle apna target channel select kijiye:", {
+        bot.sendMessage(chatId, "⚠️ Pehle upar diye gaye button se apna target channel select kijiye:", {
             reply_markup: getChannelKeyboard()
         });
         return;
@@ -149,4 +144,3 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
-        
