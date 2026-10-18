@@ -10,18 +10,7 @@ if (!token) {
     process.exit(1);
 }
 
-// Polling error handling ke sath bot start karna
-const bot = new TelegramBot(token, { 
-    polling: {
-        interval: 300,
-        autoStart: true,
-        params: { timeout: 10 }
-    }
-});
-
-bot.on('polling_error', (error) => {
-    console.log(`Polling error code: ${error.code}`);
-});
+const bot = new TelegramBot(token, { polling: true });
 
 const CHANNELS = {
     1: { id: process.env.CHANNEL_1, label: process.env.LABEL_1 || 'Channel 1' },
@@ -44,16 +33,16 @@ function getChannelKeyboard() {
     return { inline_keyboard: keyboard };
 }
 
-// Jab bhi aap koi bhi message bhejenge (video ke alawa), turant buttons samne aa jayenge
-bot.on('message', (msg) => {
+// /start dabane par channels ke buttons dikhayein
+bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    if (msg.video) return; // Video aane par yeh event nahi chalega
-
-    bot.sendMessage(chatId, "Namaste! Channel select karne ke liye niche diye gaye button par click karein:", {
+    userState[chatId] = null;
+    bot.sendMessage(chatId, "Namaste! Video bhejne ke liye niche diye gaye channel me se koi ek select karein:", {
         reply_markup: getChannelKeyboard()
     });
 });
 
+// Channel select hone par
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
@@ -68,10 +57,11 @@ bot.on('callback_query', (query) => {
         userQueues[chatId] = { queue: [], processing: false, total: 0, current: 0, label: CHANNELS[chNum].label };
 
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath bhej sakte hain. Bot line me lagakar bhejta rahega.`);
+        bot.sendMessage(chatId, `✅ **${CHANNELS[chNum].label}** select ho gaya hai!\n\nAb aap jitni marzi chahein videos ek sath forward kar sakte hain. Bot line me lagakar bhejta rahega.`);
     }
 });
 
+// Queue processing for bulk videos
 async function processQueue(chatId) {
     const userQ = userQueues[chatId];
     if (!userQ || userQ.processing || userQ.queue.length === 0) return;
@@ -97,12 +87,13 @@ async function processQueue(chatId) {
     userQ.processing = false;
 }
 
+// Video aane par queue me add karna
 bot.on('video', (msg) => {
     const chatId = msg.chat.id;
     const targetChannel = userState[chatId];
 
     if (!targetChannel) {
-        bot.sendMessage(chatId, "⚠️ Pehle channel select kijiye:", {
+        bot.sendMessage(chatId, "⚠️ Pehle /start dabakar channel select kijiye:", {
             reply_markup: getChannelKeyboard()
         });
         return;
@@ -125,4 +116,3 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
-        
