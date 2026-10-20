@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Telegram Master Router</title>
+
+  <link
+    rel="stylesheet"
+    href="/style.css"
+  >
+</head>
+
+<body>
+
+  <div class="container">
+
+    <header class="header">
+
+      <div>
+        <h1>Telegram Master Router</h1>
+
+        <p>
+          5 Channel Video Router
+        </p>
+      </div>
+
+      <div
+        id="connectionStatus"
+        class="status offline"
+      >
+        Checking Telegram...
+      </div>
+
+    </header>
+
+
+    <section class="card">
+
+      <h2>1. Select Channel</h2>
+
+      <div
+        id="channels"
+        class="channels"
+      ></div>
+
+      <div
+        id="selectedChannel"
+        class="selected"
+      >
+        No channel selected
+      </div>
+
+    </section>
+
+
+    <section class="card">
+
+      <h2>2. Select Videos</h2>
+
+      <label
+        class="uploadBox"
+        for="videoInput"
+      >
+
+        <div class="uploadIcon">
+          📤
+        </div>
+
+        <div>
+          <strong>
+            Select Videos
+          </strong>
+        </div>
+
+        <small>
+          Multiple videos allowed
+        </small>
+
+      </label>
+
+      <input
+        id="videoInput"
+        type="file"
+        accept="video/*"
+        multiple
+        hidden
+      >
+
+      <div
+        id="fileList"
+        class="fileList"
+      ></div>
+
+    </section>
+
+
+    <section class="card">
+
+      <h2>3. Controls</h2>
+
+      <div class="buttons">
+
+        <button
+          id="startButton"
+          class="primary"
+        >
+          ▶ Start
+        </button>
+
+        <button
+          id="pauseButton"
+        >
+          ⏸ Pause
+        </button>
+
+        <button
+          id="resumeButton"
+        >
+          ▶ Resume
+        </button>
+
+        <button
+          id="stopButton"
+          class="danger"
+        >
+          ■ Stop
+        </button>
+
+        <button
+          id="clearButton"
+        >
+          Clear
+        </button>
+
+        <button
+          id="reconnectButton"
+        >
+          🔄 Reconnect Telegram
+        </button>
+
+      </div>
+
+    </section>
+
+
+    <section class="card">
+
+      <h2>Statistics</h2>
+
+      <div class="stats">
+
+        <div class="stat">
+          <span>Total</span>
+          <strong id="totalCount">
+            0
+          </strong>
+        </div>
+
+        <div class="stat success">
+          <span>Success</span>
+          <strong id="successCount">
+            0
+          </strong>
+        </div>
+
+        <div class="stat failed">
+          <span>Failed</span>
+          <strong id="failedCount">
+            0
+          </strong>
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <section class="card">
+
+      <h2>Upload Queue</h2>
+
+      <div
+        id="queue"
+        class="queue"
+      >
+
+        <div class="empty">
+          No videos selected
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <section class="card">
+
+      <h2>Live Logs</h2>
+
+      <div
+        id="logs"
+        class="logs"
+      ></div>
+
+    </section>
+
+  </div>
+
+
+  <script src="/app.js"></script>
+
+</body>
+
+</html>
